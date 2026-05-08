@@ -7,6 +7,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QTextEdit,
     QSplitter,
+    QCheckBox
 )
 from PySide6.QtCore import Qt
 from ui.widgets.image_viewer import ImageViewer
@@ -41,16 +42,18 @@ class PDAPage(QWidget):
         self.zoom_in_btn = QPushButton("Zoom +")
         self.zoom_out_btn = QPushButton("Zoom -")
         self.pan_btn = QPushButton("Pan")
+        self.show_cracks_checkbox = QCheckBox("Show Cracks")  # Add this
         toolbar_layout.addStretch()
         toolbar_layout.addWidget(self.zoom_in_btn)
         toolbar_layout.addWidget(self.zoom_out_btn)
         toolbar_layout.addWidget(self.pan_btn)
+        toolbar_layout.addWidget(self.show_cracks_checkbox)  # Add this
         toolbar_layout.addStretch()
 
         # Combine layouts
         main_layout.addLayout(top_btn_layout)
         main_layout.addWidget(splitter)
-        # main_layout.addLayout(toolbar_layout)
+        main_layout.addLayout(toolbar_layout)
         self.setLayout(main_layout)
 
         # Controller
@@ -63,6 +66,8 @@ class PDAPage(QWidget):
         self.zoom_in_btn.clicked.connect(lambda: self.image_viewer.zoom(1.25))
         self.zoom_out_btn.clicked.connect(lambda: self.image_viewer.zoom(0.8))
         self.pan_btn.clicked.connect(self.enable_pan_mode)
+
+        self.show_cracks_checkbox.stateChanged.connect(self.on_toggle_cracks)
 
     def select_file(self):
         from PySide6.QtWidgets import QFileDialog
@@ -83,8 +88,20 @@ class PDAPage(QWidget):
 
     def display_results(self, results):
         self.results_panel.clear()
+        html_content = "<h3>PDA Results</h3><ul>"
         for k, v in results.items():
-            self.results_panel.append(f"{k}: {v}")
+            html_content += f"<li><b>{k}:</b> {v}</li>"
+        html_content += "</ul>"
+        self.results_panel.setHtml(html_content)
 
     def enable_pan_mode(self):
         self.image_viewer.setDragMode(QGraphicsView.ScrollHandDrag)
+
+
+    def on_toggle_cracks(self):
+        if hasattr(self, 'last_results') and self.current_file_path:
+            self.controller.update_image_display(
+                self.current_file_path, 
+                self.last_results,
+                show_cracks=self.show_cracks_checkbox.isChecked()
+            )
