@@ -8,7 +8,7 @@ def main():
     app = QApplication(sys.argv)
 
     # Apply modern theme
-    apply_stylesheet(app, theme="dark_teal.xml")
+    apply_stylesheet(app, theme="light_blue.xml")   # You can choose from various themes like "dark_blue.xml", "light_blue.xml", etc.
 
     window = MainWindow()
     window.show()

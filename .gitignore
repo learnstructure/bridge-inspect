@@ -54,3 +54,5 @@ Thumbs.db
 dist/
 build/
 *.spec
+
+models/*.h5
