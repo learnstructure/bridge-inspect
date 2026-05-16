@@ -26,6 +26,7 @@ conda-meta/
 # --- Computer Vision & ML (IMPORTANT) ---
 # Do not upload heavy model weights (e.g., .pt, .pth, .onnx)
 # It is better to download these from a cloud link or keep them local
+*.pth
 models/*.pt
 models/*.pth
 models/*.onnx
