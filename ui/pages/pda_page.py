@@ -42,7 +42,7 @@ class PDAPage(QWidget):
         self.zoom_in_btn = QPushButton("Zoom +")
         self.zoom_out_btn = QPushButton("Zoom -")
         self.pan_btn = QPushButton("Pan")
-        self.show_cracks_checkbox = QCheckBox("Show Cracks")  # Add this
+        self.show_cracks_checkbox = QCheckBox("Show Defects")  # Add this
         toolbar_layout.addStretch()
         toolbar_layout.addWidget(self.zoom_in_btn)
         toolbar_layout.addWidget(self.zoom_out_btn)
