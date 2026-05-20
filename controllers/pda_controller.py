@@ -217,6 +217,9 @@ class PDAController:
             )
             for box in cropped_crack_boxes:
                 y1, x1, y2, x2 = box
+                # Ensure box coordinates are within the image dimensions
+                y1, y2 = np.clip([y1, y2], 0, image.shape[0] - 1)
+                x1, x2 = np.clip([x1, x2], 0, image.shape[1] - 1)
                 cv2.rectangle(overlay, (int(x1), int(y1)), (int(x2), int(y2)), (0, 255, 255), 2)  # Cyan for cracks
 
 
