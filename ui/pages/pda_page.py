@@ -92,20 +92,93 @@ class PDAPage(QWidget):
 
         if not results or "error" in results:
             error_message = results.get("error", "An unknown error occurred.")
-            html_content = f"<h3>Error</h3><p>{error_message}</p>"
+            html_content = f'''<div style="background-color: #f8d7da; color: #721c24; padding: 20px; border-radius: 5px; border: 1px solid #f5c6cb;">
+                <h3>Operation Failed</h3>
+                <p>{error_message}</p>
+            </div>'''
             self.results_panel.setHtml(html_content)
             return
 
         damage_level = results.get("damage_level", "Not available")
-        num_defects = len(results.get("rois", []))
+        num_h_cracks = results.get("num_horizontal_cracks", 0)
+        num_v_cracks = results.get("num_vertical_cracks", 0)
+        max_spall_ratio = results.get("spalled_ratio", 0)
+        num_h_bars = results.get("num_exposed_horizontal_bars", 0)
+        num_v_bars = results.get("num_exposed_vertical_bars", 0)
 
-        html_content = f"""<h3>PDA Results</h3>
-        <ul>
-            <li><b>Damage Level:</b> {damage_level}</li>
-            <li><b>Detected Defects:</b> {num_defects}</li>
-        </ul>
-        """
+        if damage_level in ["Level 3", "Level 4", "Level 5"]:
+            num_h_cracks = "N/A"
+            num_v_cracks = "N/A"
+
+        html_content = f'''
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+body {{
+    background-color: #f8f9fa;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    padding: 15px;
+    color: #212529;
+}}
+.results-container {{
+    padding: 0;
+}}
+h3 {{
+    font-size: 1.5rem;
+    margin-bottom: 2rem;
+    border-bottom: 1px solid #dee2e6;
+    padding-bottom: 1rem;
+}}
+.result-item {{
+    background-color: #fff;
+    padding: 0.75rem 1.25rem;
+    margin-bottom: 10px;
+    border: 1px solid #dee2e6;
+    border-radius: 0.25rem;
+    font-size: 1rem;
+}}
+.result-item b {{
+    color: #495057;
+}}
+.damage-state {{
+    background-color: #f8d7da;
+    border-color: #f5c6cb;
+    color: #721c24;
+}}
+.damage-state b {{
+    color: #721c24;
+}}
+</style>
+</head>
+<body>
+<div class="results-container">
+    <h3>PDA Results</h3>
+    <hr/>
+    <div class="result-item">
+        <b>Number of horizontal cracks</b> = {num_h_cracks}
+    </div>
+    <div class="result-item">
+        <b>Number of vertical cracks</b> = {num_v_cracks}
+    </div>
+    <div class="result-item">
+        <b>Maximum spalled ratio</b> = {max_spall_ratio:.2f} %
+    </div>
+    <div class="result-item">
+        <b>Number of exposed horizontal bars</b> = {num_h_bars}
+    </div>
+    <div class="result-item">
+        <b>Number of exposed vertical bars</b> = {num_v_bars}
+    </div>
+    <div class="result-item damage-state">
+        <b>Damage state</b> = {damage_level}
+    </div>
+</div>
+</body>
+</html>
+'''
         self.results_panel.setHtml(html_content)
+
 
     def enable_pan_mode(self):
         self.image_viewer.setDragMode(QGraphicsView.ScrollHandDrag)

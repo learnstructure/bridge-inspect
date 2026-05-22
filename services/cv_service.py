@@ -88,10 +88,13 @@ class DetectionEngine:
         (self.verticalIndex,) = np.where(self.class_ids == 4)
         self.title = ""
         self.max_dist = 0
+        self.spalled_ratio = 0
         self.dist_coord = []
         self.cid = -1
         self.connection = []
         self.boxes_crack = []
+        self.num_horizontal_cracks = 0
+        self.num_vertical_cracks = 0
 
         self.column_detect()
 
@@ -118,9 +121,14 @@ class DetectionEngine:
             "image_shape": self.image.shape,
             "dist_coord": self.dist_coord,
             "max_dist": self.max_dist,
+            "spalled_ratio": self.spalled_ratio,
             "cid": new_cid,
             "connection": self.connection,
             "boxes_crack": self.boxes_crack,
+            "num_horizontal_cracks": self.num_horizontal_cracks,
+            "num_vertical_cracks": self.num_vertical_cracks,
+            "num_exposed_horizontal_bars": len(self.horizontalIndex),
+            "num_exposed_vertical_bars": len(self.connection),
         }
 
         if hasattr(self, "newimg"):
@@ -350,6 +358,9 @@ class DetectionEngine:
                     level1 += 1
                 elif hog_features < 70:
                     level2 += 1
+        
+        self.num_horizontal_cracks = level2
+        self.num_vertical_cracks = level1
 
         if not level2 and level1:
             self.title = "Level 1"
@@ -423,6 +434,21 @@ class DetectionEngine:
         return maxangle
 
     def calcDeficiency(self):
+
+        if self.columnIndex.size > 0:
+            m, c, m2, c2 = self.calcColumnWidth()
+            if m is None: return
+
+            if self.cid != -1:
+                cur = self.rois[self.cid][0] - 300
+                f1 = m * cur + c
+                f2 = m2 * cur + c2
+                if abs(f1-f2) > 0:
+                    ratio = (self.max_dist / abs(f1 - f2)) * 100
+                    self.spalled_ratio = ratio
+                    print("Spalled Ratio:", ratio )
+
+
         if len(self.connection) >= 2 or len(self.horizontalIndex) >= 3:
             self.title = "Level 5"
             return
@@ -440,6 +466,7 @@ class DetectionEngine:
                 f2 = m2 * cur + c2
                 if abs(f1-f2) > 0:
                     ratio = (self.max_dist / abs(f1 - f2)) * 100
+                    self.spalled_ratio = ratio
                     if ratio >= 50:
                         self.title = "Level 4"
                     elif 10 <= ratio <= 30:
