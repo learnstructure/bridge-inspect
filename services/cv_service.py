@@ -95,17 +95,30 @@ class DetectionEngine:
 
         self.column_detect()
 
+        valid_indices = np.unique(np.concatenate([
+            self.columnIndex,
+            self.spallingIndex,
+            self.horizontalIndex,
+            self.verticalIndex
+        ]).astype(int))
+
+        new_cid = -1
+        if self.cid != -1:
+            match = np.where(valid_indices == self.cid)[0]
+            if match.size > 0:
+                new_cid = match[0]
+
         processed_results = {
-            "rois": self.rois,
-            "class_ids": self.class_ids,
-            "scores": self.scores,
-            "masks": self.masks,
+            "rois": self.rois[valid_indices],
+            "class_ids": self.class_ids[valid_indices],
+            "scores": self.scores[valid_indices],
+            "masks": self.masks[:, :, valid_indices],
             "damage_level": self.title,
             "column_present": self.columnIndex.size > 0,
             "image_shape": self.image.shape,
             "dist_coord": self.dist_coord,
             "max_dist": self.max_dist,
-            "cid": self.cid,
+            "cid": new_cid,
             "connection": self.connection,
             "boxes_crack": self.boxes_crack,
         }

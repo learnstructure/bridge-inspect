@@ -3,22 +3,11 @@ import logging
 import numpy as np
 from skimage import color, draw, io, img_as_ubyte
 import cv2
+import random
 
 from services.cv_service import DetectionEngine, class_names
 
 logger = logging.getLogger(__name__)
-
-
-def apply_mask(image, mask, color, alpha=0.5):
-    """Apply a colored mask to an image without importing matplotlib."""
-    for c in range(3):
-        image[:, :, c] = np.where(
-            mask == 1,
-            image[:, :, c] * (1 - alpha) + alpha * color[c] * 255,
-            image[:, :, c],
-        )
-    return image
-
 
 class PDAController:
     def __init__(self, view):
@@ -114,20 +103,18 @@ class PDAController:
                 continue
 
             class_id = class_ids[i]
-            color_rgb = colors.get(
-                class_id, (np.random.rand(), np.random.rand(), np.random.rand())
-            )
-            overlay = apply_mask(overlay, mask, color_rgb, alpha=0.4)
+            color_rgb = colors.get(class_id, (random.random(), random.random(), random.random()))
+            cv_color = (color_rgb[0] * 255, color_rgb[1] * 255, color_rgb[2] * 255)
+
+            # Draw mask outline instead of filling
+            mask_uint8 = (mask * 255).astype(np.uint8)
+            contours, _ = cv2.findContours(mask_uint8, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            cv2.drawContours(overlay, contours, -1, cv_color, 2)
 
             y1, x1, y2, x2 = cropped_boxes[i]
 
-            cv2.rectangle(
-                overlay,
-                (int(x1), int(y1)),
-                (int(x2), int(y2)),
-                (color_rgb[0] * 255, color_rgb[1] * 255, color_rgb[2] * 255),
-                2,
-            )
+            # Draw bounding box
+            cv2.rectangle(overlay, (int(x1), int(y1)), (int(x2), int(y2)), cv_color, 1)
 
             name = class_names[class_id]
             label = f"{name}"
@@ -140,7 +127,7 @@ class PDAController:
                 (int(text_x), int(text_y)),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.7,
-                (color_rgb[0] * 255, color_rgb[1] * 255, color_rgb[2] * 255),
+                cv_color,
                 2,
             )
 
