@@ -8,6 +8,9 @@ from PySide6.QtWidgets import (
     QTextEdit,
     QSplitter,
     QCheckBox,
+    QFormLayout,
+    QLineEdit,
+    QLabel,
 )
 from PySide6.QtCore import Qt
 from ui.widgets.image_viewer import ImageViewer
@@ -30,11 +33,39 @@ class PDAPage(QWidget):
         # Splitter for Image + Results
         splitter = QSplitter(Qt.Horizontal)
         self.image_viewer = ImageViewer()
-        self.results_panel = QTextEdit()
-        self.results_panel.setReadOnly(True)
-        self.results_panel.setPlaceholderText("PDA Results will appear here...")
+
+        # --- Results Panel (Now an Editable Form) ---
+        self.results_widget = QWidget()
+        self.results_layout = QFormLayout(self.results_widget)
+        self.results_layout.setRowWrapPolicy(QFormLayout.WrapAllRows)
+        self.results_layout.setLabelAlignment(Qt.AlignLeft)
+        self.results_layout.setFormAlignment(Qt.AlignLeft | Qt.AlignTop)
+        self.results_widget.setLayout(self.results_layout)
+
+        self.results_title = QLabel("<h3>PDA Results</h3>")
+        self.num_h_cracks_input = QLineEdit()
+        self.num_v_cracks_input = QLineEdit()
+        self.max_spall_ratio_input = QLineEdit()
+        self.num_h_bars_input = QLineEdit()
+        self.num_v_bars_input = QLineEdit()
+        self.damage_level_display = QLineEdit()
+        self.damage_level_display.setReadOnly(True)
+        self.damage_level_display.setStyleSheet("background-color: #e9ecef; color: #495057;")
+
+        self.results_layout.addRow(self.results_title)
+        self.results_layout.addRow("Number of horizontal cracks:", self.num_h_cracks_input)
+        self.results_layout.addRow("Number of diagonal cracks:", self.num_v_cracks_input)
+        self.results_layout.addRow("Maximum spalled ratio (%):", self.max_spall_ratio_input)
+        self.results_layout.addRow("Number of exposed horizontal bars:", self.num_h_bars_input)
+        self.results_layout.addRow("Number of exposed vertical bars:", self.num_v_bars_input)
+        self.results_layout.addRow("Damage state:", self.damage_level_display)
+        
+        self.update_results_btn = QPushButton("Update Assessment")
+        self.results_layout.addWidget(self.update_results_btn)
+        # ----------------------------------------
+
         splitter.addWidget(self.image_viewer)
-        splitter.addWidget(self.results_panel)
+        splitter.addWidget(self.results_widget)
         splitter.setSizes([700, 300])
 
         # Image toolbar (zoom in/out, pan)
@@ -68,6 +99,7 @@ class PDAPage(QWidget):
         self.zoom_out_btn.clicked.connect(lambda: self.image_viewer.zoom(0.8))
         self.pan_btn.clicked.connect(self.enable_pan_mode)
         self.show_defects_checkbox.stateChanged.connect(self.on_toggle_defects)
+        self.update_results_btn.clicked.connect(self.on_update_assessment)
 
     def select_file(self):
         from PySide6.QtWidgets import QFileDialog
@@ -88,15 +120,15 @@ class PDAPage(QWidget):
 
     def display_results(self, results):
         self.last_results = results
-        self.results_panel.clear()
 
         if not results or "error" in results:
-            error_message = results.get("error", "An unknown error occurred.")
-            html_content = f'''<div style="background-color: #f8d7da; color: #721c24; padding: 20px; border-radius: 5px; border: 1px solid #f5c6cb;">
-                <h3>Operation Failed</h3>
-                <p>{error_message}</p>
-            </div>'''
-            self.results_panel.setHtml(html_content)
+            # You can add a dialog or a status bar message for errors if you want
+            self.num_h_cracks_input.setText("Error")
+            self.num_v_cracks_input.setText("Error")
+            self.max_spall_ratio_input.setText("Error")
+            self.num_h_bars_input.setText("Error")
+            self.num_v_bars_input.setText("Error")
+            self.damage_level_display.setText(results.get("error", "Unknown error"))
             return
 
         damage_level = results.get("damage_level", "Not available")
@@ -106,79 +138,47 @@ class PDAPage(QWidget):
         num_h_bars = results.get("num_exposed_horizontal_bars", 0)
         num_v_bars = results.get("num_exposed_vertical_bars", 0)
 
+        # Set values in the QLineEdit widgets
+        self.max_spall_ratio_input.setText(f"{max_spall_ratio:.2f}")
+        self.num_h_bars_input.setText(str(num_h_bars))
+        self.num_v_bars_input.setText(str(num_v_bars))
+        self.damage_level_display.setText(damage_level)
+
+        # Handle special case for crack fields
         if damage_level in ["Level 3", "Level 4", "Level 5"]:
-            num_h_cracks = "N/A"
-            num_v_cracks = "N/A"
+            self.num_h_cracks_input.setText("N/A")
+            self.num_h_cracks_input.setEnabled(False)
+            self.num_v_cracks_input.setText("N/A")
+            self.num_v_cracks_input.setEnabled(False)
+        else:
+            self.num_h_cracks_input.setText(str(num_h_cracks))
+            self.num_h_cracks_input.setEnabled(True)
+            self.num_v_cracks_input.setText(str(num_v_cracks))
+            self.num_v_cracks_input.setEnabled(True)
 
-        html_content = f'''
-<!DOCTYPE html>
-<html>
-<head>
-<style>
-body {{
-    background-color: #f8f9fa;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-    padding: 15px;
-    color: #212529;
-}}
-.results-container {{
-    padding: 0;
-}}
-h3 {{
-    font-size: 1.5rem;
-    margin-bottom: 2rem;
-    border-bottom: 1px solid #dee2e6;
-    padding-bottom: 1rem;
-}}
-.result-item {{
-    background-color: #fff;
-    padding: 0.75rem 1.25rem;
-    margin-bottom: 10px;
-    border: 1px solid #dee2e6;
-    border-radius: 0.25rem;
-    font-size: 1rem;
-}}
-.result-item b {{
-    color: #495057;
-}}
-.damage-state {{
-    background-color: #f8d7da;
-    border-color: #f5c6cb;
-    color: #721c24;
-}}
-.damage-state b {{
-    color: #721c24;
-}}
-</style>
-</head>
-<body>
-<div class="results-container">
-    <h3>PDA Results</h3>
-    <hr/>
-    <div class="result-item">
-        <b>Number of horizontal cracks</b> = {num_h_cracks}
-    </div>
-    <div class="result-item">
-        <b>Number of diagonal cracks</b> = {num_v_cracks}
-    </div>
-    <div class="result-item">
-        <b>Maximum spalled ratio</b> = {max_spall_ratio:.2f} %
-    </div>
-    <div class="result-item">
-        <b>Number of exposed horizontal bars</b> = {num_h_bars}
-    </div>
-    <div class="result-item">
-        <b>Number of exposed vertical bars</b> = {num_v_bars}
-    </div>
-    <div class="result-item damage-state">
-        <b>Damage state</b> = {damage_level}
-    </div>
-</div>
-</body>
-</html>
-'''
-        self.results_panel.setHtml(html_content)
+    def on_update_assessment(self):
+        if not self.last_results:
+            return
+        
+        updated_data = self.last_results.copy()
+        
+        try:
+            # Only update values if they are enabled
+            if self.num_h_cracks_input.isEnabled():
+                updated_data["num_horizontal_cracks"] = int(self.num_h_cracks_input.text())
+            if self.num_v_cracks_input.isEnabled():
+                updated_data["num_vertical_cracks"] = int(self.num_v_cracks_input.text())
+            
+            updated_data["spalled_ratio"] = float(self.max_spall_ratio_input.text())
+            updated_data["num_exposed_horizontal_bars"] = int(self.num_h_bars_input.text())
+            updated_data["num_exposed_vertical_bars"] = int(self.num_v_bars_input.text())
+        except (ValueError, TypeError):
+            # You could show a QErrorMessage dialog here
+            print("Invalid input. Please enter valid numbers.")
+            return
 
+        # Pass the updated data to the controller for recalculation
+        self.controller.update_damage_assessment(updated_data)
 
     def enable_pan_mode(self):
         self.image_viewer.setDragMode(QGraphicsView.ScrollHandDrag)

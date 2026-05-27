@@ -37,6 +37,50 @@ class PDAController:
         logger.info("PDA analysis completed successfully")
         self.update_image_display(file_path, results, show_cracks=True)
 
+    def update_damage_assessment(self, updated_data):
+        """Recalculate damage level based on user-edited values."""
+        # 1. Recalculate the damage level
+        recalculated_level = self._recalculate_damage_level(updated_data)
+        updated_data["damage_level"] = recalculated_level
+        
+        # 2. Update the main results object
+        self.view.last_results = updated_data
+        
+        # 3. Refresh the UI display with the new data
+        self.view.display_results(updated_data)
+        
+        # 4. (Optional) Regenerate the overlay image if needed
+        if self.view.current_file_path:
+            self.update_image_display(
+                self.view.current_file_path, 
+                updated_data, 
+                show_cracks=self.view.show_defects_checkbox.isChecked()
+            )
+        logger.info(f"Damage assessment updated by user. New level: {recalculated_level}")
+
+    def _recalculate_damage_level(self, data):
+        """Pure function to determine damage level from input data."""
+        num_h_bars = data.get("num_exposed_horizontal_bars", 0)
+        num_v_connections = len(data.get("connection", [])) # Using connection length for vertical bars
+        spall_ratio = data.get("spalled_ratio", 0)
+        num_h_cracks = data.get("num_horizontal_cracks", 0)
+        num_v_cracks = data.get("num_vertical_cracks", 0)
+
+        if num_v_connections >= 2 or num_h_bars >= 3:
+            return "Level 5"
+        if num_v_connections == 1 or num_h_bars >= 1:
+            return "Level 4"
+        if spall_ratio >= 50:
+            return "Level 4"
+        if 10 <= spall_ratio < 50: # Corrected from `10 <= spall_ratio <= 30`
+            return "Level 3"
+        if num_v_cracks and num_v_cracks >= 3:
+            return "Level 2"
+        if not num_v_cracks and num_h_cracks:
+            return "Level 1"
+        
+        return "Level 0" # Default case
+
     def update_image_display(
         self, file_path, results, show_cracks=False, score_threshold=0.5
     ):
