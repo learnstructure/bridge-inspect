@@ -159,7 +159,7 @@ h3 {{
         <b>Number of horizontal cracks</b> = {num_h_cracks}
     </div>
     <div class="result-item">
-        <b>Number of vertical cracks</b> = {num_v_cracks}
+        <b>Number of diagonal cracks</b> = {num_v_cracks}
     </div>
     <div class="result-item">
         <b>Maximum spalled ratio</b> = {max_spall_ratio:.2f} %

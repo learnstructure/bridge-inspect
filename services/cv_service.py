@@ -359,8 +359,8 @@ class DetectionEngine:
                 elif hog_features < 70:
                     level2 += 1
         
-        self.num_horizontal_cracks = level2
-        self.num_vertical_cracks = level1
+        self.num_horizontal_cracks = level1
+        self.num_vertical_cracks = level2
 
         if not level2 and level1:
             self.title = "Level 1"
