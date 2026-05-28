@@ -60,3 +60,5 @@ models/*.h5
 
 
 tests/images/*
+
+assets/images/*
