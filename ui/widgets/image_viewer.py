@@ -20,7 +20,7 @@ class ImageViewer(QGraphicsView):
         self.drawn_rect_item = None
         self.start_pos = None
         self.is_drawing = False
-        self._read_only = False  # New attribute to control drawing
+        self._read_only = False
 
         # --- Interaction Settings ---
         self.setDragMode(QGraphicsView.ScrollHandDrag)
@@ -29,17 +29,13 @@ class ImageViewer(QGraphicsView):
     def setReadOnly(self, is_read_only: bool):
         """Enable or disable drawing on the widget."""
         self._read_only = is_read_only
-        # If turning to read-only, ensure drag mode is enabled for panning.
         if self._read_only:
             self.setDragMode(QGraphicsView.ScrollHandDrag)
-        # If turning off read-only (making it editable), disable drag to allow drawing.
-        # The drawing events will manage the drag mode from here.
         else:
             self.setDragMode(QGraphicsView.NoDrag)
 
     def load_image(self, image_data, is_np_array=False):
         if is_np_array:
-            # Ensure data is contiguous
             if not image_data.flags['C_CONTIGUOUS']:
                 image_data = np.ascontiguousarray(image_data)
             h, w, ch = image_data.shape
@@ -64,8 +60,6 @@ class ImageViewer(QGraphicsView):
             self.scale(zoom_factor, zoom_factor)
         else:
             self.scale(1 / zoom_factor, 1 / zoom_factor)
-
-    # --- Drawing and BBox Methods ---
 
     def mousePressEvent(self, event):
         if self._read_only or event.button() != Qt.LeftButton:
@@ -103,7 +97,8 @@ class ImageViewer(QGraphicsView):
     def draw_bbox(self, bbox_coords):
         if self.bbox_item:
             self.scene.removeItem(self.bbox_item)
-        if not bbox_coords: return
+        if bbox_coords is None or not np.any(bbox_coords):
+            return
         y1, x1, y2, x2 = bbox_coords
         rect = QRectF(QPointF(x1, y1), QPointF(x2, y2))
         self.bbox_item = QGraphicsRectItem(rect)
