@@ -56,7 +56,7 @@ class DamageStateEditorPage(QWidget):
         self.save_btn = QPushButton("Update Rules")
         self.reset_btn = QPushButton("Reset to Defaults")
         self.save_btn.setFixedWidth(150)
-        self.reset_btn.setFixedWidth(150)
+        self.reset_btn.setFixedWidth(200)
         self.save_btn.clicked.connect(self.on_save_rules)
         self.reset_btn.clicked.connect(self.on_reset_rules)
         button_layout.addStretch()

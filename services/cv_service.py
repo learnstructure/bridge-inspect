@@ -16,6 +16,10 @@ logger = logging.getLogger(__name__)
 
 
 class_names = ["BG", "column", "spalling", "horizontal", "vertical"]
+def get_bbox_area(bbox):
+    """Calculates the area of a bounding box."""
+    y1, x1, y2, x2 = bbox
+    return (y2 - y1) * (x2 - x1)
 
 
 class DetectionEngine:
@@ -35,7 +39,7 @@ class DetectionEngine:
         crack_model_path = os.path.join(model_dir, "finetuned_rescale.h5")
         self.crack_model = tf.keras.models.load_model(crack_model_path)
 
-    def detect(self, image_path):
+    def detect(self, image_path, column_override_bbox=None):
         image = skimage.io.imread(image_path)
         if image.ndim != 3:
             image = color.gray2rgb(image)
@@ -62,6 +66,27 @@ class DetectionEngine:
 
         results = self.mask_rcnn.detect([padded_image], verbose=0)
         r = results[0]
+        
+        # If a user-defined bounding box is provided, inject it as the primary column.
+        if column_override_bbox is not None:
+            y1, x1, y2, x2 = column_override_bbox
+            # Create a new mask for the user's box
+            new_mask = np.zeros((r["masks"].shape[0], r["masks"].shape[1]), dtype=bool)
+            new_mask[y1:y2, x1:x2] = True
+            
+            # Add the new mask, ROI, class ID, and score to the results
+            r["masks"] = np.dstack([r["masks"], new_mask])
+            r["rois"] = np.vstack([r["rois"], [y1, x1, y2, x2]])
+            r["class_ids"] = np.append(r["class_ids"], 1) # 1 is the class_id for 'column'
+            r["scores"] = np.append(r["scores"], 1.0) # Assign a perfect score
+            
+            # Ensure the rest of the logic ONLY uses this new column
+            # by overwriting the list of detected columns to point only to our new one.
+            column_indices = np.where(r["class_ids"] == 1)[0]
+            self.user_overwrote_column = True
+            self.forced_column_index = column_indices[-1] # It's the last one we added
+        else:
+            self.user_overwrote_column = False
 
         for i in range(len(r["rois"])):
             from_mask = np.where(r["masks"][:, :, i] == True)
@@ -137,12 +162,17 @@ class DetectionEngine:
         return processed_results
 
     def column_detect(self):
-        if self.columnIndex.size == 0:
+        if self.user_overwrote_column:
+            # If user specified a column, force it and proceed to analysis
+            self.columnIndex = np.array([self.forced_column_index])
+            self.exposed_bar()
+        elif self.columnIndex.size == 0:
             self.title = "Column Detection Failed"
             self.crack_detection(columnInstance=False)
         else:
             self.exposed_bar()
 
+    # ... all other methods are unchanged ...
     def exposed_bar(self):
         validVerticalIndex = np.array([], dtype="int32")
         validHorizontalIndex = np.array([], dtype="int32")

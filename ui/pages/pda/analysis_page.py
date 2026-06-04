@@ -94,11 +94,16 @@ class AnalysisPage(QWidget):
         from PySide6.QtWidgets import QFileDialog
         file_path, _ = QFileDialog.getOpenFileName(self, "Open Image", "", "Images (*.png *.jpg *.jpeg)")
         if file_path:
-            self.current_file_path = file_path
+            # self.current_file_path is updated by display_image now
             self.controller.upload_image(file_path)
 
-    def display_image(self, file_path):
-        self.image_viewer.load_image(file_path)
+    def display_image(self, image_data, is_np_array=False):
+        """
+        Displays an image from a file path or a NumPy array.
+        """
+        if not is_np_array:
+            self.current_file_path = image_data
+        self.image_viewer.load_image(image_data, is_np_array=is_np_array)
 
     def run_pda(self):
         if self.current_file_path:
@@ -107,7 +112,8 @@ class AnalysisPage(QWidget):
     def display_results(self, results):
         self.last_results = results
         if not results or "error" in results:
-            # Handle errors
+            # You might want to show a message box here
+            print(f"An error occurred: {results.get('error')}")
             return
 
         damage_level = results.get("damage_level", "N/A")
@@ -122,23 +128,30 @@ class AnalysisPage(QWidget):
         self.num_v_bars_input.setText(str(num_v_bars))
         self.damage_level_display.setText(damage_level)
 
+        # Spalling can make crack detection irrelevant
         is_spalled = damage_level in ["Level 3", "Level 4", "Level 5"]
         self.num_h_cracks_input.setText("N/A" if is_spalled else str(num_h_cracks))
         self.num_h_cracks_input.setEnabled(not is_spalled)
         self.num_v_cracks_input.setText("N/A" if is_spalled else str(num_v_cracks))
         self.num_v_cracks_input.setEnabled(not is_spalled)
 
+
     def on_update_assessment(self):
         if not self.last_results: return
         updated_data = self.last_results.copy()
         try:
-            if self.num_h_cracks_input.isEnabled(): updated_data["num_horizontal_cracks"] = int(self.num_h_cracks_input.text())
-            if self.num_v_cracks_input.isEnabled(): updated_data["num_vertical_cracks"] = int(self.num_v_cracks_input.text())
+            # Only read from inputs that are enabled
+            if self.num_h_cracks_input.isEnabled():
+                updated_data["num_horizontal_cracks"] = int(self.num_h_cracks_input.text())
+            if self.num_v_cracks_input.isEnabled():
+                updated_data["num_vertical_cracks"] = int(self.num_v_cracks_input.text())
+            
             updated_data["spalled_ratio"] = float(self.max_spall_ratio_input.text())
             updated_data["num_exposed_horizontal_bars"] = int(self.num_h_bars_input.text())
             updated_data["num_exposed_vertical_bars"] = int(self.num_v_bars_input.text())
-        except (ValueError, TypeError):
-            # Handle invalid input
+        except (ValueError, TypeError) as e:
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.critical(self, "Invalid Input", f"Please check your input values. Error: {e}")
             return
         self.controller.update_damage_assessment(updated_data)
 
