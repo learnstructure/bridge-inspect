@@ -62,3 +62,6 @@ models/*.h5
 tests/images/*
 
 assets/images/*
+
+unused_models_deep_learning_course/
+trash/

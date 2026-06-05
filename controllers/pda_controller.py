@@ -53,6 +53,18 @@ class PDAController:
         self.original_results = deepcopy(results)
         self._update_all_views(file_path, results)
 
+
+    def _generate_final_overlay(self, file_path, results, score_threshold=0.5):
+        base_overlay = self._create_detection_overlay(file_path, results, score_threshold)
+        if "crack_image" in results and results["crack_image"] is not None:
+            crack_overlay = results["crack_image"]
+            if crack_overlay.ndim == 2: crack_overlay = cv2.cvtColor(crack_overlay, cv2.COLOR_GRAY2BGR)
+            elif crack_overlay.shape[2] == 4: crack_overlay = cv2.cvtColor(crack_overlay, cv2.COLOR_RGBA2BGR)
+            h, w, _ = base_overlay.shape
+            crack_overlay_resized = cv2.resize(crack_overlay, (w, h))
+            return cv2.addWeighted(base_overlay, 1, img_as_ubyte(crack_overlay_resized), 0.6, 0)
+        return base_overlay
+
     def recalculate_results_with_new_mask(self, new_column_mask):
         if not self.original_results or not self.current_file_path:
             logger.warning("Cannot recalculate without initial analysis results.")
@@ -61,15 +73,19 @@ class PDAController:
         filtered_results = self._filter_defects_by_roi(self.original_results, new_column_mask)
         filtered_results["damage_level"] = self._recalculate_damage_level(filtered_results)
         
-        self._update_all_views(self.current_file_path, filtered_results)
+        overlay = self._generate_final_overlay(self.current_file_path, filtered_results)
+        filtered_results["overlay_image"] = overlay
+
+        if self.correction_view: self.correction_view.display_updated_results(filtered_results)  # Updated name
+        if self.summary_view: self.summary_view.update_summary(filtered_results)
+
         logger.info(f"Results recalculated for new mask. New Damage Level: {filtered_results['damage_level']}")
 
+
     def restore_original_results(self):
-        if not self.original_results or not self.current_file_path:
-            logger.warning("No original results available to restore.")
-            return
+        if not self.original_results or not self.current_file_path: return
         self._update_all_views(self.current_file_path, self.original_results)
-        logger.info("Original analysis results have been restored.")
+        logger.info("Original analysis results restored.")
 
     def update_damage_assessment(self, updated_data):
         if not self.analysis_view or not self.current_file_path: return
@@ -79,6 +95,10 @@ class PDAController:
 
     def _update_all_views(self, file_path, results):
         results_copy = deepcopy(results)
+        
+        image = io.imread(file_path)
+        overlay_array = self._create_detection_overlay(image, results_copy)
+        results_copy["overlay_image"] = overlay_array
 
         if self.analysis_view:
             self.analysis_view.last_results = results_copy
@@ -92,8 +112,10 @@ class PDAController:
             self.correction_view.display_updated_results(results_copy)
 
         if self.summary_view:
-            overlay_path = self._create_detection_overlay(file_path, results_copy)
-            results_copy['overlay_path'] = overlay_path
+            overlay_path = Path(file_path).with_suffix(".overlay.png")
+            # Convert back to BGR for saving with OpenCV-compatible libraries if needed
+            io.imsave(str(overlay_path), cv2.cvtColor(overlay_array, cv2.COLOR_RGB2BGR))
+            results_copy['overlay_path'] = str(overlay_path)
             self.summary_view.update_summary(results_copy)
 
     def _filter_defects_by_roi(self, original_results, new_column_mask):
@@ -139,61 +161,60 @@ class PDAController:
             return "Level 1"
         return "Level 0"
 
-    def update_image_display(self, file_path, results, show_cracks=False, score_threshold=0.5):
-        """Show either original image or overlaid detection image."""
-        if show_cracks and results and "rois" in results and np.array(results["rois"]).any():
-            overlay_path = self._create_detection_overlay(file_path, results, score_threshold)
-            self.analysis_view.display_image(overlay_path)
+    def update_image_display(self, file_path, results, show_cracks=False):
+        if show_cracks and results and "overlay_image" in results:
+            self.analysis_view.display_image(results["overlay_image"], is_np_array=True)
         else:
             self.analysis_view.display_image(file_path)
 
-    def _create_detection_overlay(self, file_path, results, score_threshold=0.5):
-        image = io.imread(file_path)
-        if image.ndim != 3: image = color.gray2rgb(image)
-        if image.shape[-1] == 4: image = image[..., :3]
-        overlay = img_as_ubyte(image)
-
+    def _create_detection_overlay(self, image, results, score_threshold=0.5):
+        if isinstance(image, (str, Path)):
+            image = io.imread(image)
         if "crack_image" in results and results["crack_image"] is not None:
-            crack_overlay = results["crack_image"]
-            if crack_overlay.ndim == 2: crack_overlay = color.gray2rgb(crack_overlay)
-            h, w, _ = overlay.shape
-            crack_overlay_resized = cv2.resize(img_as_ubyte(crack_overlay), (w, h))
-            overlay = cv2.addWeighted(overlay, 1, crack_overlay_resized, 0.6, 0)
-
-        boxes = np.array(results["rois"]).astype(np.int32)
-        masks = results.get("masks")
-        scores = results.get("scores", np.ones(boxes.shape[0]))
-        class_ids = results["class_ids"]
+            overlay = results["crack_image"].copy()
+        else:
+            overlay = image.copy()
         
-        padded_shape = masks.shape[:2] if masks is not None else image.shape[:2]
+        overlay = img_as_ubyte(overlay)
+        if overlay.ndim == 2:
+            overlay = cv2.cvtColor(overlay, cv2.COLOR_GRAY2BGR)
+        elif overlay.shape[2] == 4:
+            overlay = cv2.cvtColor(overlay, cv2.COLOR_RGBA2BGR)
 
-        cropped_boxes, cropped_masks = self._crop_padded_rois(
-            image.shape[:2], padded_shape, boxes, masks
-        )
-
-        colors = { 1: (1,0,0), 2: (0,1,0), 3: (0,0,1), 4: (0.5,0,1) }
-
-        for i in range(cropped_boxes.shape[0]):
-            if scores[i] < score_threshold: continue
+        boxes = np.array(results.get("rois", [])).astype(np.int32)
+        if boxes.any():
+            masks = results.get("masks")
+            scores = results.get("scores", np.ones(boxes.shape[0]))
+            class_ids = results["class_ids"]
             
-            class_id = class_ids[i]
-            color_rgb = colors.get(class_id, (random.random(), random.random(), random.random()))
-            cv_color = tuple(c * 255 for c in color_rgb)
+            padded_shape = masks.shape[:2] if masks is not None else image.shape[:2]
 
-            y1, x1, y2, x2 = cropped_boxes[i]
-            cv2.rectangle(overlay, (int(x1), int(y1)), (int(x2), int(y2)), cv_color, 2)
-            
-            label = f"{class_names[class_id]}"
-            (w, h), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)
-            text_y = y1 - 10 if y1 - 10 > h else y1 + h + 10
-            cv2.putText(overlay, label, (int(x1), int(text_y)), cv2.FONT_HERSHEY_SIMPLEX, 0.7, cv_color, 2)
+            cropped_boxes, cropped_masks = self._crop_padded_rois(
+                image.shape[:2], padded_shape, boxes, masks
+            )
 
-            if cropped_masks is not None and i < cropped_masks.shape[2]:
-                mask = cropped_masks[:, :, i]
-                if mask.sum() > 0:
-                    mask_uint8 = (mask * 255).astype(np.uint8)
-                    contours, _ = cv2.findContours(mask_uint8, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-                    cv2.drawContours(overlay, contours, -1, cv_color, 2)
+            colors = { 1: (255,0,0), 2: (0,255,0), 3: (0,0,255), 4: (128,0,255) }
+
+            for i in range(cropped_boxes.shape[0]):
+                if scores[i] < score_threshold: continue
+                
+                class_id = class_ids[i]
+                cv_color = colors.get(class_id, (random.randint(0,255), random.randint(0,255), random.randint(0,255)))
+
+                y1, x1, y2, x2 = cropped_boxes[i]
+                cv2.rectangle(overlay, (int(x1), int(y1)), (int(x2), int(y2)), cv_color, 2)
+                
+                label = f"{class_names[class_id]}"
+                (w, h), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)
+                text_y = y1 - 10 if y1 - 10 > h else y1 + h + 10
+                cv2.putText(overlay, label, (int(x1), int(text_y)), cv2.FONT_HERSHEY_SIMPLEX, 0.7, cv_color, 2)
+
+                if cropped_masks is not None and i < cropped_masks.shape[2]:
+                    mask = cropped_masks[:, :, i]
+                    if mask.sum() > 0:
+                        mask_uint8 = (mask * 255).astype(np.uint8)
+                        contours, _ = cv2.findContours(mask_uint8, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                        cv2.drawContours(overlay, contours, -1, cv_color, 2)
 
         boxes_crack = results.get("boxes_crack", [])
         if boxes_crack and np.array(boxes_crack).any():
@@ -202,13 +223,12 @@ class PDAController:
             )
             for box in cropped_crack_boxes:
                 y1, x1, y2, x2 = box
-                cv2.rectangle(overlay, (int(x1), int(y1)), (int(x2), int(y2)), (0, 255, 255), 2)  # Cyan for cracks
+                cv2.rectangle(overlay, (int(x1), int(y1)), (int(x2), int(y2)), (0, 255, 255), 2)
 
         cv2.putText(overlay, results["damage_level"], (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2, cv2.LINE_AA)
-
-        overlay_path = Path(file_path).with_suffix(".overlay.png")
-        io.imsave(str(overlay_path), overlay)
-        return str(overlay_path)
+        
+        # Convert final overlay from BGR to RGB for GUI display
+        return cv2.cvtColor(overlay, cv2.COLOR_BGR2RGB)
 
     def _crop_padded_rois(self, original_shape, padded_shape, boxes, masks):
         orig_h, orig_w = original_shape
