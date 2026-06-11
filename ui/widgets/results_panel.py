@@ -36,10 +36,8 @@ class ResultsPanel(QWidget):
         self.damage_level_display.setReadOnly(True)
         self.damage_level_display.setStyleSheet("background-color: #e9ecef; color: #495057;")
         
-        if not self._is_editable:
-            for field in self.all_fields.values():
-                field.setReadOnly(True)
-                field.setStyleSheet("background-color: #f0f0f0; border: 1px solid #ccc; padding: 4px;")
+        # Set initial read-only state
+        self.set_editable(self._is_editable)
 
         self.layout.addRow(self.results_title)
         self.layout.addRow("<b>Damage State:</b>", self.damage_level_display)
@@ -53,6 +51,26 @@ class ResultsPanel(QWidget):
             self.update_btn = QPushButton("Update Assessment")
             self.update_btn.clicked.connect(self.on_update_clicked)
             self.layout.addRow(self.update_btn)
+
+    def set_editable(self, editable):
+        """Toggles the editable state of the input fields."""
+        self._is_editable = editable
+        # Damage level display is always read-only
+        fields_to_toggle = {k: v for k, v in self.all_fields.items() if k != 'damage_level'}
+
+        for field in fields_to_toggle.values():
+            field.setReadOnly(not editable)
+            if editable:
+                field.setStyleSheet("background-color: #ffffff; border: 1px solid #999; padding: 4px;")
+            else:
+                field.setStyleSheet("background-color: #f0f0f0; border: 1px solid #ccc; padding: 4px;")
+        
+        # Re-apply logic for enabling/disabling crack fields based on current data
+        damage_level = self.damage_level_display.text()
+        is_spalled = damage_level in ["Level 3", "Level 4", "Level 5"]
+        if self._is_editable:
+             self.num_h_cracks_input.setEnabled(not is_spalled)
+             self.num_v_cracks_input.setEnabled(not is_spalled)
 
     def update_results(self, results):
         if not results:
@@ -72,6 +90,7 @@ class ResultsPanel(QWidget):
         self.num_h_bars_input.setText(str(results.get("num_exposed_horizontal_bars", 0)))
         self.num_v_bars_input.setText(str(results.get("num_exposed_vertical_bars", 0)))
 
+        # When results are updated, ensure the editable state is correctly applied
         if self._is_editable:
             self.num_h_cracks_input.setEnabled(not is_spalled)
             self.num_v_cracks_input.setEnabled(not is_spalled)

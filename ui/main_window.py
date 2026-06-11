@@ -82,8 +82,8 @@ class MainWindow(QMainWindow):
 
         pda_item = self._add_nav_item("PDA", "pda")
         self._add_nav_item("Damage State Rules", "pda", "pda_rules", parent=pda_item)
-        self._add_nav_item("PDA Analysis", "pda", "pda_analysis", parent=pda_item)
-        self._add_nav_item("Correction", "pda", "pda_correction", parent=pda_item)
+        self._add_nav_item("AI Analysis", "pda", "pda_analysis", parent=pda_item)
+        self._add_nav_item("Mask Correction", "pda", "pda_correction", parent=pda_item)
         self._add_nav_item("Summary Report", "pda", "pda_report", parent=pda_item)
 
         self._add_nav_item("DDA", "dda")

@@ -5,7 +5,7 @@ import cv2
 import numpy as np
 import random
 from pathlib import Path
-from skimage import color, io, img_as_ubyte
+from skimage import io, img_as_ubyte
 from services.cv_service import DetectionEngine, class_names, get_bbox_area
 
 logger = logging.getLogger(__name__)
@@ -24,6 +24,7 @@ class PDAController:
         self.summary_view = None
         self.cv_engine = DetectionEngine()
         self.original_results = None
+        self.corrected_results = None # Add corrected_results state
         self.current_file_path = None
         self.damage_rules = {
             "level_5": {"min_h_bars": 3, "min_v_bars": 2},
@@ -33,14 +34,22 @@ class PDAController:
             "level_1": {"min_h_cracks": 1, "max_v_cracks": 0}
         }
 
+
     def set_view(self, analysis_view, correction_view, summary_view):
+        """
+        Assigns the view instances to the controller and connects signals.
+        This is the correct place to establish connections, as view objects are
+        guaranteed to exist.
+        """
         self.analysis_view = analysis_view
         self.correction_view = correction_view
         self.summary_view = summary_view
 
+
     def upload_image(self, file_path):
         self.current_file_path = file_path
         self.original_results = None
+        self.corrected_results = None
         if self.analysis_view: self.analysis_view.display_image(file_path)
         if self.correction_view: self.correction_view.display_image(file_path)
         if self.summary_view: self.summary_view.update_summary(None)
@@ -51,51 +60,147 @@ class PDAController:
         results = self.cv_engine.detect(file_path)
         results["damage_level"] = self._recalculate_damage_level(results)
         self.original_results = deepcopy(results)
-        self._update_all_views(file_path, results)
+        self.corrected_results = deepcopy(results) # Initialize corrected results
+        self._update_all_views(file_path, self.original_results) # Update all views with original data initially
 
+    # --- Correction Methods ---
+    def add_mask(self, class_name, coords):
+        if self.corrected_results is None: return
+        class_id = class_names.index(class_name)
+        
+        # Use lists for easier manipulation
+        rois_list = self.corrected_results["rois"].tolist()
+        class_ids_list = self.corrected_results["class_ids"].tolist()
+        scores_list = self.corrected_results["scores"].tolist()
 
-    def _generate_final_overlay(self, file_path, results, score_threshold=0.5):
-        base_overlay = self._create_detection_overlay(file_path, results, score_threshold)
-        if "crack_image" in results and results["crack_image"] is not None:
-            crack_overlay = results["crack_image"]
-            if crack_overlay.ndim == 2: crack_overlay = cv2.cvtColor(crack_overlay, cv2.COLOR_GRAY2BGR)
-            elif crack_overlay.shape[2] == 4: crack_overlay = cv2.cvtColor(crack_overlay, cv2.COLOR_RGBA2BGR)
-            h, w, _ = base_overlay.shape
-            crack_overlay_resized = cv2.resize(crack_overlay, (w, h))
-            return cv2.addWeighted(base_overlay, 1, img_as_ubyte(crack_overlay_resized), 0.6, 0)
-        return base_overlay
+        rois_list.append(coords)
+        class_ids_list.append(class_id)
+        scores_list.append(1.0) # Assume perfect score for manual additions
 
-    def recalculate_results_with_new_mask(self, new_column_mask):
-        if not self.original_results or not self.current_file_path:
-            logger.warning("Cannot recalculate without initial analysis results.")
+        self.corrected_results["rois"] = np.array(rois_list)
+        self.corrected_results["class_ids"] = np.array(class_ids_list)
+        self.corrected_results["scores"] = np.array(scores_list)
+
+        # Add a placeholder mask if masks are present
+        if "masks" in self.corrected_results and self.corrected_results["masks"] is not None:
+            new_mask = np.zeros_like(self.corrected_results["masks"][:, :, 0:1])
+            self.corrected_results["masks"] = np.dstack([self.corrected_results["masks"], new_mask])
+
+        self._update_correction_views()
+
+    def update_mask(self, index, new_coords):
+        if self.corrected_results is None or not (0 <= index < len(self.corrected_results["rois"])):
+            return
+        self.corrected_results["rois"][index] = new_coords
+        self._update_correction_views()
+
+    def delete_mask(self, index):
+        if self.corrected_results is None or not (0 <= index < len(self.corrected_results["rois"])):
             return
         
-        filtered_results = self._filter_defects_by_roi(self.original_results, new_column_mask)
-        filtered_results["damage_level"] = self._recalculate_damage_level(filtered_results)
+        self.corrected_results["rois"] = np.delete(self.corrected_results["rois"], index, axis=0)
+        self.corrected_results["class_ids"] = np.delete(self.corrected_results["class_ids"], index, axis=0)
+        self.corrected_results["scores"] = np.delete(self.corrected_results["scores"], index, axis=0)
+
+        if "masks" in self.corrected_results and self.corrected_results["masks"] is not None:
+            self.corrected_results["masks"] = np.delete(self.corrected_results["masks"], index, axis=2)
         
-        overlay = self._generate_final_overlay(self.current_file_path, filtered_results)
-        filtered_results["overlay_image"] = overlay
+        self._update_correction_views()
 
-        if self.correction_view: self.correction_view.display_updated_results(filtered_results)  # Updated name
-        if self.summary_view: self.summary_view.update_summary(filtered_results)
+    def _update_correction_views(self):
+        """
+        Recalculates all derived statistics based on the current state of corrected_results,
+        then updates the correction and summary views. This is the single source of truth
+        after any correction is made.
+        """
+        if self.corrected_results is None or self.current_file_path is None:
+            return
 
-        logger.info(f"Results recalculated for new mask. New Damage Level: {filtered_results['damage_level']}")
+        # 1. Recalculate summary statistics from the ground truth (rois and class_ids)
+        class_ids = self.corrected_results.get("class_ids", np.array([]))
+        rois = self.corrected_results.get("rois", np.array([]))
 
+        # Find the column ROI from original results to have a stable denominator for spalled_ratio.
+        column_roi = None
+        if self.original_results:
+            try:
+                original_class_ids = self.original_results.get("class_ids", np.array([]))
+                original_rois = self.original_results.get("rois", np.array([]))
+                column_index = np.where(original_class_ids == class_names.index('column'))[0][0]
+                column_roi = original_rois[column_index]
+            except (ValueError, IndexError, AttributeError):
+                column_roi = None # No column found in original results
+
+        column_area = get_bbox_area(column_roi) if column_roi is not None else 0
+        
+        spalling_area = 0
+        num_h_bars = 0
+        num_v_bars = 0
+
+        spalling_class_id = class_names.index('spalling')
+        h_bar_class_id = class_names.index('horizontal')
+        v_bar_class_id = class_names.index('vertical')
+
+        for i, cid in enumerate(class_ids):
+            if cid == spalling_class_id:
+                spalling_area += get_bbox_area(rois[i])
+            elif cid == h_bar_class_id:
+                num_h_bars += 1
+            elif cid == v_bar_class_id:
+                num_v_bars += 1
+
+        spalled_ratio = (spalling_area / column_area) * 100 if column_area > 0 else 0
+
+        # 2. Update the main corrected_results dictionary
+        self.corrected_results["num_exposed_horizontal_bars"] = num_h_bars
+        self.corrected_results["num_exposed_vertical_bars"] = num_v_bars
+        self.corrected_results["spalled_ratio"] = spalled_ratio
+
+        # 3. Recalculate damage level based on the new stats
+        self.corrected_results["damage_level"] = self._recalculate_damage_level(self.corrected_results)
+
+        # 4. Create a deepcopy to pass to the views
+        results_for_views = deepcopy(self.corrected_results)
+
+        # 5. Generate and add the overlay image for the views
+        overlay_array = self._create_detection_overlay(self.current_file_path, results_for_views)
+        results_for_views["overlay_image"] = overlay_array
+
+        # 6. Update the relevant views with the fully updated data
+        if self.correction_view:
+            self.correction_view.display_updated_results(results_for_views)
+        if self.summary_view:
+            self.summary_view.update_summary(results_for_views)
+        
+        logger.info("Correction views and summary updated after recalculation.")
 
     def restore_original_results(self):
         if not self.original_results or not self.current_file_path: return
+        self.corrected_results = deepcopy(self.original_results)
+        # Call the original update function to reset all views to the baseline
         self._update_all_views(self.current_file_path, self.original_results)
         logger.info("Original analysis results restored.")
 
+    # --- Existing Methods (Unchanged or Minimally Changed) ---
+
+    def recalculate_results_with_new_mask(self, new_column_mask):
+        if not self.original_results or not self.current_file_path: return
+        filtered_results = self._filter_defects_by_roi(self.original_results, new_column_mask)
+        filtered_results["damage_level"] = self._recalculate_damage_level(filtered_results)
+        overlay = self._generate_final_overlay(self.current_file_path, filtered_results)
+        filtered_results["overlay_image"] = overlay
+        if self.correction_view: self.correction_view.display_updated_results(filtered_results)
+        if self.summary_view: self.summary_view.update_summary(filtered_results)
+        logger.info(f"Results recalculated for new mask. New Damage Level: {filtered_results['damage_level']}")
+
     def update_damage_assessment(self, updated_data):
         if not self.analysis_view or not self.current_file_path: return
-        updated_data["damage_level"] = self._recalculate_damage_level(updated_data)
-        self._update_all_views(self.current_file_path, updated_data)
+        self.corrected_results = updated_data # Update corrected_results
+        self._update_correction_views()
         logger.info(f"Damage assessment updated. New level: {updated_data['damage_level']}")
 
     def _update_all_views(self, file_path, results):
         results_copy = deepcopy(results)
-        
         image = io.imread(file_path)
         overlay_array = self._create_detection_overlay(image, results_copy)
         results_copy["overlay_image"] = overlay_array
@@ -113,7 +218,6 @@ class PDAController:
 
         if self.summary_view:
             overlay_path = Path(file_path).with_suffix(".overlay.png")
-            # Convert back to BGR for saving with OpenCV-compatible libraries if needed
             io.imsave(str(overlay_path), cv2.cvtColor(overlay_array, cv2.COLOR_RGB2BGR))
             results_copy['overlay_path'] = str(overlay_path)
             self.summary_view.update_summary(results_copy)
@@ -134,7 +238,7 @@ class PDAController:
 
         new_column_area = get_bbox_area(new_column_mask)
         recounted_results.update({
-            "rois": np.array(filtered_rois), "class_ids": filtered_class_ids, "scores": filtered_scores,
+            "rois": np.array(filtered_rois), "class_ids": np.array(filtered_class_ids), "scores": np.array(filtered_scores),
             "num_exposed_horizontal_bars": sum(1 for cid in filtered_class_ids if 0 <= cid < len(class_names) and class_names[cid] == 'horizontal'),
             "num_exposed_vertical_bars": sum(1 for cid in filtered_class_ids if 0 <= cid < len(class_names) and class_names[cid] == 'vertical'),
             "spalled_ratio": (spalling_area_in_mask / new_column_area) * 100 if new_column_area > 0 else 0,
@@ -214,7 +318,7 @@ class PDAController:
                     if mask.sum() > 0:
                         mask_uint8 = (mask * 255).astype(np.uint8)
                         contours, _ = cv2.findContours(mask_uint8, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-                        cv2.drawContours(overlay, contours, -1, cv_color, 2)
+                        cv2.drawContours(overlay, contours, -1, cv_color, 1)
 
         boxes_crack = results.get("boxes_crack", [])
         if boxes_crack and np.array(boxes_crack).any():
@@ -227,7 +331,6 @@ class PDAController:
 
         cv2.putText(overlay, results["damage_level"], (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2, cv2.LINE_AA)
         
-        # Convert final overlay from BGR to RGB for GUI display
         return cv2.cvtColor(overlay, cv2.COLOR_BGR2RGB)
 
     def _crop_padded_rois(self, original_shape, padded_shape, boxes, masks):

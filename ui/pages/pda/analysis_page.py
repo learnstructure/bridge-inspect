@@ -1,7 +1,7 @@
 # ui/pages/pda/analysis_page.py
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QSplitter, 
-    QCheckBox, QGraphicsView, QFileDialog
+    QCheckBox, QLabel, QFrame, QFileDialog
 )
 from PySide6.QtCore import Qt
 from ui.widgets.image_viewer import ImageViewer
@@ -16,45 +16,55 @@ class AnalysisPage(QWidget):
         self.last_results = None
 
         main_layout = QVBoxLayout(self)
-
-        top_btn_layout = QHBoxLayout()
-        self.upload_btn = QPushButton("Upload Image")
-        self.run_btn = QPushButton("Run PDA")
-        top_btn_layout.addWidget(self.upload_btn)
-        top_btn_layout.addWidget(self.run_btn)
-
         splitter = QSplitter(Qt.Horizontal)
+
+        # --- Left Panel (Image) ---
+        left_panel_widget = QWidget()
+        left_panel_layout = QVBoxLayout(left_panel_widget)
+        left_panel_layout.setContentsMargins(0, 0, 0, 0)
+        self.upload_btn = QPushButton("Upload Image")
         self.image_viewer = ImageViewer()
-        # The results panel on this page is for display only.
+        left_panel_layout.addWidget(self.upload_btn)
+        left_panel_layout.addWidget(self.image_viewer)
+        
+        # --- Right Panel (Results) --- 
+        right_panel_widget = QWidget()
+        right_panel_layout = QVBoxLayout(right_panel_widget)
         self.results_panel = ResultsPanel(is_editable=False)
 
-        splitter.addWidget(self.image_viewer)
-        splitter.addWidget(self.results_panel)
-        splitter.setSizes([700, 300])
-
-        toolbar_layout = QHBoxLayout()
-        self.zoom_in_btn = QPushButton("Zoom +")
-        self.zoom_out_btn = QPushButton("Zoom -")
-        self.pan_btn = QPushButton("Pan")
+        # --- Controls Layout ---
+        self.run_btn = QPushButton("Run PDA")
         self.show_defects_checkbox = QCheckBox("Show Defects")
-        toolbar_layout.addStretch()
-        toolbar_layout.addWidget(self.zoom_in_btn)
-        toolbar_layout.addWidget(self.zoom_out_btn)
-        toolbar_layout.addWidget(self.pan_btn)
-        toolbar_layout.addWidget(self.show_defects_checkbox)
-        toolbar_layout.addStretch()
+        self.show_defects_checkbox.setChecked(True) # Set checkbox to be checked by default
+        
+        bottom_controls_layout = QHBoxLayout()
+        bottom_controls_layout.addWidget(self.run_btn)
+        bottom_controls_layout.addWidget(self.show_defects_checkbox)
 
-        main_layout.addLayout(top_btn_layout)
+        separator = QFrame()
+        separator.setFrameShape(QFrame.HLine)
+        separator.setFrameShadow(QFrame.Sunken)
+
+        zoom_instructions = QLabel("Use mouse scroll to zoom, right-click to pan.")
+        zoom_instructions.setAlignment(Qt.AlignCenter)
+
+        right_panel_layout.addWidget(self.results_panel)
+        right_panel_layout.addStretch()
+        right_panel_layout.addLayout(bottom_controls_layout)
+        right_panel_layout.addWidget(separator)
+        right_panel_layout.addWidget(zoom_instructions)
+
+        splitter.addWidget(left_panel_widget)
+        splitter.addWidget(right_panel_widget)
+        splitter.setSizes([750, 250])
+
         main_layout.addWidget(splitter)
-        main_layout.addLayout(toolbar_layout)
 
     def set_controller(self, controller):
         self.controller = controller
+        self.image_viewer.image_dropped.connect(self.controller.upload_image)
         self.upload_btn.clicked.connect(self.select_file)
         self.run_btn.clicked.connect(self.run_pda)
-        self.zoom_in_btn.clicked.connect(lambda: self.image_viewer.scale(1.25, 1.25))
-        self.zoom_out_btn.clicked.connect(lambda: self.image_viewer.scale(0.8, 0.8))
-        self.pan_btn.clicked.connect(self.enable_pan_mode)
         self.show_defects_checkbox.stateChanged.connect(self.on_toggle_defects)
 
     def select_file(self):
@@ -74,9 +84,6 @@ class AnalysisPage(QWidget):
     def display_results(self, results):
         self.last_results = results
         self.results_panel.update_results(results)
-
-    def enable_pan_mode(self):
-        self.image_viewer.setDragMode(QGraphicsView.ScrollHandDrag)
 
     def on_toggle_defects(self):
         if self.last_results and self.current_file_path:

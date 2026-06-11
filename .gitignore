@@ -60,6 +60,8 @@ models/*.h5
 
 
 tests/images/*
+tests/*.png
+tests/*.jpg
 
 assets/images/*
 

@@ -5,10 +5,10 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt
 from ui.widgets.image_viewer import ImageViewer
-from ui.widgets.results_panel import ResultsPanel  # Import the new panel
+from ui.widgets.results_panel import ResultsPanel
 
 class SummaryReportPage(QWidget):
-    """A page to display a comprehensive summary of the PDA results, now using ResultsPanel."""
+    """A page to display a comprehensive summary of the PDA results."""
     def __init__(self):
         super().__init__()
         self.controller = None
@@ -25,16 +25,28 @@ class SummaryReportPage(QWidget):
         self.image_viewer.setReadOnly(True)
 
         right_panel_widget = QWidget()
-        results_panel_layout = QVBoxLayout(right_panel_widget)
+        right_panel_layout = QVBoxLayout(right_panel_widget)
         
         self.results_panel = ResultsPanel(is_editable=False)
 
         self.notes_area = QTextEdit()
         self.notes_area.setPlaceholderText("Add any final notes or observations for the report...")
 
-        results_panel_layout.addWidget(self.results_panel)
-        results_panel_layout.addWidget(QLabel("<h4>Notes</h4>"))
-        results_panel_layout.addWidget(self.notes_area)
+        # --- Button Layout ---
+        button_layout = QHBoxLayout()
+        self.save_report_btn = QPushButton("Save Report")
+        self.overwrite_btn = QPushButton("Overwrite")
+        button_layout.addWidget(self.overwrite_btn)
+        button_layout.addWidget(self.save_report_btn)
+
+        # Connect signals immediately after creating the buttons
+        self.save_report_btn.clicked.connect(self.save_report)
+        self.overwrite_btn.clicked.connect(self.enable_overwrite)
+
+        right_panel_layout.addWidget(self.results_panel)
+        right_panel_layout.addWidget(QLabel("<h4>Notes</h4>"))
+        right_panel_layout.addWidget(self.notes_area)
+        right_panel_layout.addLayout(button_layout)
 
         splitter.addWidget(self.image_viewer)
         splitter.addWidget(right_panel_widget)
@@ -42,19 +54,13 @@ class SummaryReportPage(QWidget):
 
         main_layout.addWidget(splitter)
 
-        button_layout = QHBoxLayout()
-        self.save_report_btn = QPushButton("Save Report")
-        self.save_report_btn.clicked.connect(self.save_report)
-        button_layout.addStretch()
-        button_layout.addWidget(self.save_report_btn)
-        button_layout.addStretch()
-        main_layout.addLayout(button_layout)
-
     def set_controller(self, controller):
         self.controller = controller
 
     def update_summary(self, results):
         """Populates the summary page with results and the overlay image."""
+        self.results_panel.set_editable(False) # Reset to read-only on new data
+        self.overwrite_btn.setEnabled(True) # Re-enable the overwrite button
         self.results_panel.update_results(results)
 
         if not results:
@@ -66,6 +72,11 @@ class SummaryReportPage(QWidget):
             self.image_viewer.load_image(results["overlay_image"], is_np_array=True)
         else:
             self.image_viewer.clear_image()
+
+    def enable_overwrite(self):
+        """Makes the results panel editable."""
+        self.results_panel.set_editable(True)
+        self.overwrite_btn.setEnabled(False) # Disable button after use
 
     def save_report(self):
         """Saves the summary report content to a text file."""
